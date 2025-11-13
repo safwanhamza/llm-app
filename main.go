@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 )
-
+nmo
 func main() {
 	name := flag.String("name", "World", "Name to greet")
 	upper := flag.Bool("upper", false, "Print the greeting in UPPERCASE")
