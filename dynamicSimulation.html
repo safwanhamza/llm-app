@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Simulation</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            font-family: 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'Noto Sans', sans-serif;
+            background-color: #111827;
+            color: #e5e7eb;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        #simulationCanvas {
+            background-color: #000;
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(129, 140, 248, 0.5);
+            border: 1px solid #374151;
+        }
+        #controls {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 15px;
+            padding: 20px;
+            background-color: #1f2937;
+            border-radius: 8px;
+            margin-top: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            max-width: 90vw;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+        label {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: #9ca3af;
+        }
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 150px;
+            height: 7px;
+            background: #374151;
+            outline: none;
+            border-radius: 5px;
+            opacity: 0.7;
+            transition: opacity .2s;
+        }
+        input[type="range"]:hover {
+            opacity: 1;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #818cf8;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #e5e7eb;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            background: #818cf8;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #e5e7eb;
+        }
+        button {
+            padding: 10px 18px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #ffffff;
+            background-color: #4f46e5;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.1s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        button:hover {
+            background-color: #6366f1;
+        }
+        button:active {
+            transform: scale(0.98);
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="simulationCanvas"></canvas>
+
+    <div id="controls">
+        <button id="resetButton">Reset Simulation</button>
+        <div class="control-group">
+            <label for="viscositySlider">Viscosity</label>
+            <input id="viscositySlider" type="range" min="0.85" max="0.99" step="0.01" value="0.95">
+        </div>
+        <div class="control-group">
+            <label for="particleCountSlider">Particles</label>
+            <input id="particleCountSlider" type="range" min="500" max="2000" step="100" value="1200">
+        </div>
+        <div class="control-group">
+            <label for="zoomSlider">Zoom</label>
+            <input id="zoomSlider" type="range" min="0.5" max="2.0" step="0.1" value="1.0">
+        </div>
+         <div class="control-group">
+            <label for="wrapButton">Toggle Wrap</label>
+            <button id="wrapButton">Wrap: ON</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simulationCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let particles = [];
+        let simulationRules = [];
+        
+        let canvasWidth = Math.min(window.innerWidth * 0.9, 1000);
+        let canvasHeight = Math.min(window.innerHeight * 0.7, 700);
+        
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+
+        let globalViscosity = 0.95;
+        let particleCount = 1200;
+        let globalZoom = 1.0;
+        let wrapEdges = true;
+
+        let panX = 0;
+        let panY = 0;
+        let isPanning = false;
+        let lastPanX = 0;
+        let lastPanY = 0;
+
+        const numTypes = 6;
+        const colors = [
+            '#ef4444', 
+            '#22c55e', 
+            '#3b82f6', 
+            '#eab308', 
+            '#a855f7', 
+            '#ec4899'  
+        ];
+
+        const resetButton = document.getElementById('resetButton');
+        const viscositySlider = document.getElementById('viscositySlider');
+        const particleCountSlider = document.getElementById('particleCountSlider');
+        const zoomSlider = document.getElementById('zoomSlider');
+        const wrapButton = document.getElementById('wrapButton');
+
+        function createRandomRules() {
+            let rules = [];
+            for (let i = 0; i < numTypes; i++) {
+                let row = [];
+                for (let j = 0; j < numTypes; j++) {
+                    row.push({
+                        attraction: (Math.random() - 0.5) * 1.5,
+                        minRadius: Math.random() * 20 + 20,
+                        maxRadius: Math.random() * 80 + 50
+                    });
+                }
+                rules.push(row);
+            }
+            return rules;
+        }
+
+        function createParticle(x, y, type) {
+            return {
+                x: x || Math.random() * canvasWidth,
+                y: y || Math.random() * canvasHeight,
+                vx: (Math.random() - 0.5) * 2,
+                vy: (Math.random() - 0.5) * 2,
+                type: type || Math.floor(Math.random() * numTypes),
+                fx: 0,
+                fy: 0
+            };
+        }
+
+        function initializeSimulation() {
+            particles = [];
+            simulationRules = createRandomRules();
+            panX = 0;
+            panY = 0;
+            globalZoom = 1.0;
+            zoomSlider.value = globalZoom;
+            
+            particleCount = parseInt(particleCountSlider.value, 10);
+            globalViscosity = parseFloat(viscositySlider.value);
+            
+            for (let i = 0; i < particleCount; i++) {
+                particles.push(createParticle());
+            }
+            
+            console.log("Simulation Initialized with " + particleCount + " particles.");
+        }
+
+        function calculateDistance(p1, p2) {
+            const dx = p1.x - p2.x;
+            const dy = p1.y - p2.y;
+            return { dx, dy, dist: Math.sqrt(dx * dx + dy * dy) };
+        }
+        
+        function getWrappedDistance(p1, p2, width, height) {
+            let dx = p1.x - p2.x;
+            let dy = p1.y - p2.y;
+        
+            if (dx > width * 0.5) {
+                dx -= width;
+            } else if (dx < -width * 0.5) {
+                dx += width;
+            }
+        
+            if (dy > height * 0.5) {
+                dy -= height;
+            } else if (dy < -height * 0.5) {
+                dy += height;
+            }
+        
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            return { dx, dy, dist };
+        }
+
+        function applyForce(p1, p2, rule) {
+            let distData;
+            if (wrapEdges) {
+                distData = getWrappedDistance(p1, p2, canvasWidth, canvasHeight);
+            } else {
+                distData = calculateDistance(p1, p2);
+            }
+
+            const { dx, dy, dist } = distData;
+
+            if (dist > 0 && dist < rule.maxRadius) {
+                const force = calculateForce(dist, rule.attraction, rule.minRadius, rule.maxRadius);
+                const forceX = force * (dx / dist);
+                const forceY = force * (dy / dist);
+                p1.fx -= forceX;
+                p1.fy -= forceY;
+            }
+        }
+
+        function calculateForce(distance, attraction, minRadius, maxRadius) {
+            if (distance < minRadius) {
+                return (distance / minRadius - 1) * 0.5; 
+            } else if (distance < maxRadius) {
+                const midPoint = (minRadius + maxRadius) * 0.5;
+                const range = maxRadius - minRadius;
+                const normalizedDist = (distance - minRadius) / range;
+                return attraction * (1 - Math.abs(1 - 2 * normalizedDist));
+            }
+            return 0;
+        }
+
+        function updateParticle(p) {
+            p.fx = 0;
+            p.fy = 0;
+
+            for (let i = 0; i < particles.length; i++) {
+                const p2 = particles[i];
+                if (p === p2) continue;
+
+                const rule = simulationRules[p.type][p2.type];
+                applyForce(p, p2, rule);
+            }
+
+            const forceMagnitudeLimit = 2.0;
+            const fxSign = Math.sign(p.fx);
+            const fySign = Math.sign(p.fy);
+            p.fx = Math.abs(p.fx) > forceMagnitudeLimit ? forceMagnitudeLimit * fxSign : p.fx;
+            p.fy = Math.abs(p.fy) > forceMagnitudeLimit ? forceMagnitudeLimit * fySign : p.fy;
+
+            p.vx = (p.vx + p.fx) * globalViscosity;
+            p.vy = (p.vy + p.fy) * globalViscosity;
+
+            const velocityLimit = 5.0;
+            const vxSign = Math.sign(p.vx);
+            const vySign = Math.sign(p.vy);
+            p.vx = Math.abs(p.vx) > velocityLimit ? velocityLimit * vxSign : p.vx;
+            p.vy = Math.abs(p.vy) > velocityLimit ? velocityLimit * vySign : p.vy;
+
+            p.x += p.vx;
+            p.y += p.vy;
+
+            if (wrapEdges) {
+                if (p.x < 0) p.x += canvasWidth;
+                if (p.x >= canvasWidth) p.x -= canvasWidth;
+                if (p.y < 0) p.y += canvasHeight;
+                if (p.y >= canvasHeight) p.y -= canvasHeight;
+            } else {
+                const borderForce = 0.2;
+                if (p.x < 0) {
+                    p.vx = Math.abs(p.vx) * borderForce;
+                    p.x = 0;
+                }
+                if (p.x >= canvasWidth) {
+                    p.vx = -Math.abs(p.vx) * borderForce;
+                    p.x = canvasWidth - 1;
+                }
+                if (p.y < 0) {
+                    p.vy = Math.abs(p.vy) * borderForce;
+                    p.y = 0;
+                }
+                if (p.y >= canvasHeight) {
+                    p.vy = -Math.abs(p.vy) * borderForce;
+                    p.y = canvasHeight - 1;
+                }
+            }
+        }
+
+        function drawParticle(p, context, currentZoom, currentPanX, currentPanY) {
+            const screenX = (p.x + currentPanX) * currentZoom;
+            const screenY = (p.y + currentPanY) * currentZoom;
+
+            const particleSize = 2.5 * currentZoom;
+
+            if (screenX + particleSize < 0 || screenX - particleSize > context.canvas.width ||
+                screenY + particleSize < 0 || screenY - particleSize > context.canvas.height) {
+                return;
+            }
+
+            context.beginPath();
+            context.arc(screenX, screenY, particleSize, 0, Math.PI * 2);
+            context.fillStyle = colors[p.type];
+            context.fill();
+        }
+
+        function draw() {
+            ctx.globalAlpha = 1.0;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const currentZoom = globalZoom;
+            const currentPanX = panX;
+            const currentPanY = panY;
+
+            for (let i = 0; i < particles.length; i++) {
+                drawParticle(particles[i], ctx, currentZoom, currentPanX, currentPanY);
+            }
+        }
+
+        function animate() {
+            for (let i = 0; i < particles.length; i++) {
+                updateParticle(particles[i]);
+            }
+            draw();
+            requestAnimationFrame(animate);
+        }
+
+        function handleResize() {
+            canvasWidth = Math.min(window.innerWidth * 0.9, 1000);
+            canvasHeight = Math.min(window.innerHeight * 0.7, 700);
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+            console.log("Canvas resized.");
+        }
+        
+        function setupEventListeners() {
+            resetButton.onclick = () => {
+                console.log("Reset button clicked.");
+                initializeSimulation();
+            };
+
+            viscositySlider.oninput = (e) => {
+                globalViscosity = parseFloat(e.target.value);
+            };
+
+            particleCountSlider.onchange = (e) => {
+                const newCount = parseInt(e.target.value, 10);
+                const diff = newCount - particles.length;
+                if (diff > 0) {
+                    for(let i = 0; i < diff; i++) {
+                        particles.push(createParticle());
+                    }
+                } else {
+                    particles.splice(0, -diff);
+                }
+                particleCount = newCount;
+                console.log("Particle count changed to " + newCount);
+            };
+
+            zoomSlider.oninput = (e) => {
+                globalZoom = parseFloat(e.target.value);
+            };
+
+            wrapButton.onclick = () => {
+                wrapEdges = !wrapEdges;
+                wrapButton.textContent = wrapEdges ? "Wrap: ON" : "Wrap: OFF";
+                console.log("Edge wrapping set to " + wrapEdges);
+            };
+
+            canvas.onmousedown = (e) => {
+                isPanning = true;
+                lastPanX = e.clientX;
+                lastPanY = e.clientY;
+                canvas.style.cursor = 'grabbing';
+            };
+
+            canvas.onmouseup = () => {
+                isPanning = false;
+                canvas.style.cursor = 'grab';
+            };
+
+            canvas.onmouseleave = () => {
+                isPanning = false;
+                canvas.style.cursor = 'grab';
+            };
+
+            canvas.onmousemove = (e) => {
+                if (isPanning) {
+                    const dx = e.clientX - lastPanX;
+                    const dy = e.clientY - lastPanY;
+                    panX += dx / globalZoom;
+                    panY += dy / globalZoom;
+                    lastPanX = e.clientX;
+                    lastPanY = e.clientY;
+                }
+            };
+            
+            canvas.onwheel = (e) => {
+                e.preventDefault();
+                const scaleAmount = 0.1;
+                const mouseX = e.clientX - canvas.getBoundingClientRect().left;
+                const mouseY = e.clientY - canvas.getBoundingClientRect().top;
+                
+                const worldX = (mouseX / globalZoom) - panX;
+                const worldY = (mouseY / globalZoom) - panY;
+
+                if (e.deltaY < 0) {
+                    globalZoom *= (1 + scaleAmount);
+                } else {
+                    globalZoom /= (1 + scaleAmount);
+                }
+                
+                globalZoom = Math.max(0.1, Math.min(globalZoom, 5.0));
+                zoomSlider.value = globalZoom;
+
+                panX = (mouseX / globalZoom) - worldX;
+                panY = (mouseY / globalZoom) - worldY;
+            };
+
+            window.onresize = handleResize;
+            canvas.style.cursor = 'grab';
+        }
+
+        initializeSimulation();
+        setupEventListeners();
+        animate();
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        sillyUtilityFunctionOne();
+        function sillyUtilityFunctionOne() {
+            let a = 10;
+            let b = 20;
+            let c = a + b;
+            if (c > 29) {
+                let d = c * 0.5;
+                let e = d - 1;
+                let f = e + 0.1;
+                let g = f * 1.001;
+                let h = g / 0.999;
+                let i = h + 2;
+                let j = i - 3;
+                let k = j * 4;
+                let l = k / 5;
+                let m = l + 6;
+                let n = m - 7;
+                let o = n * 8;
+                let p = o / 9;
+                let q = p + 10;
+                let r = q - 11;
+                let s = r * 12;
+                let t = s / 13;
+                let u = t + 14;
+                let v = u - 15;
+                let w = v * 16;
+                let x = w / 17;
+                let y = x + 18;
+                let z = y - 19;
+                let aa = z * 20;
+                let ab = aa / 21;
+                let ac = ab + 22;
+                let ad = ac - 23;
+                let ae = ad * 24;
+                let af = ae / 25;
+                let ag = af + 26;
+                let ah = ag - 27;
+                let ai = ah * 28;
+                let aj = ai / 29;
+                let ak = aj + 30;
+                let al = ak - 31;
+                let am = al * 32;
+                let an = am / 33;
+                let ao = an + 34;
+                let ap = ao - 35;
+                let aq = ap * 36;
+                let ar = aq / 37;
+                let as = ar + 38;
+                let at = as - 39;
+                let au = at * 40;
+                let av = au / 41;
+                let aw = av + 42;
+                let ax = aw - 43;
+                let ay = ax * 44;
+                let az = ay / 45;
+                let ba = az + 46;
+                let bb = ba - 47;
+                let bc = bb * 48;
+                let bd = bc / 49;
+                let be = bd + 50;
+                let bf = be - 51;
+                let bg = bf * 52;
+                let bh = bg / 53;
+                let bi = bh + 54;
+                let bj = bi - 55;
+                let bk = bj * 56;
+                let bl = bk / 57;
+                let bm = bl + 58;
+                let bn = bm - 59;
+                let bo = bn * 60;
+                let bp = bo / 61;
+                let bq = bp + 62;
+                let br = bq - 63;
+                let bs = br * 64;
+                let bt = bs / 65;
+                let bu = bt + 66;
+                let bv = bu - 67;
+                let bw = bv * 68;
+                let bx = bw / 69;
+                let by = bx + 70;
+                let bz = by - 71;
+                let ca = bz * 72;
+                let cb = ca / 73;
+                let cc = cb + 74;
+                let cd = cc - 75;
+                let ce = cd * 76;
+                let cf = ce / 77;
+                let cg = cf + 78;
+                let ch = cg - 79;
+                let ci = ch * 80;
+                let cj = ci / 81;
+                let ck = cj + 82;
+                let cl = ck - 83;
+                let cm = cl * 84;
+                let cn = cm / 85;
+                let co = cn + 86;
+                let cp = co - 87;
+                let cq = cp * 88;
+                let cr = cq / 89;
+                let cs = cr + 90;
+                let ct = cs - 91;
+                let cu = ct * 92;
+                let cv = cu / 93;
+                let cw = cv + 94;
+                let cx = cw - 95;
+                let cy = cx * 96;
+                let cz = cy / 97;
+                let da = cz + 98;
+                let db = da - 99;
+                let dc = db * 100;
+            }
+        }
+        
+        sillyUtilityFunctionTwo();
+        function sillyUtilityFunctionTwo() {
+            let matrixA = [];
+            let matrixB = [];
+            let matrixC = [];
+            let size = 10;
+            for(let i = 0; i < size; i++) {
+                matrixA[i] = [];
+                matrixB[i] = [];
+                matrixC[i] = [];
+                for(let j = 0; j < size; j++) {
+                    matrixA[i][j] = i * j + Math.random();
+                    matrixB[i][j] = i + j + Math.random();
+                    matrixC[i][j] = 0;
+                }
+            }
+            for(let i = 0; i < size; i++) {
+                for(let j = 0; j < size; j++) {
+                    let sum = 0;
+                    for(let k = 0; k < size; k++) {
+                        sum += matrixA[i][k] * matrixB[k][j];
+                    }
+                    matrixC[i][j] = sum;
+                }
+            }
+            let trace = 0;
+            for(let i = 0; i < size; i++) {
+                trace += matrixC[i][i];
+            }
+            let determinantPartA = matrixA[0][0] * matrixA[1][1] - matrixA[0][1] * matrixA[1][0];
+            let determinantPartB = matrixB[0][0] * matrixB[1][1] - matrixB[0][1] * matrixB[1][0];
+            let determinantPartC = matrixC[0][0] * matrixC[1][1] - matrixC[0][1] * matrixC[1][0];
+            
+            let pointlessCalculation = (trace * determinantPartA) / (determinantPartB + determinantPartC + 1);
+            if (pointlessCalculation > 100) {
+                 for(let i = 0; i < size; i++) {
+                    for(let j = 0; j < size; j++) {
+                        matrixA[i][j] = matrixA[i][j] * 0.9;
+                        matrixB[i][j] = matrixB[i][j] * 1.1;
+                    }
+                 }
+            } else {
+                 for(let i = 0; i < size; i++) {
+                    for(let j = 0; j < size; j++) {
+                        matrixA[i][j] = matrixA[i][j] * 1.1;
+                        matrixB[i][j] = matrixB[i][j] * 0.9;
+                    }
+                 }
+            }
+        }
+        
+        sillyUtilityFunctionThree();
+        function sillyUtilityFunctionThree() {
+            let dataList = [];
+            for(let i = 0; i < 200; i++) {
+                dataList.push(Math.random() * 1000);
+            }
+            
+            for(let i = 0; i < dataList.length; i++) {
+                for(let j = 0; j < dataList.length - 1 - i; j++) {
+                    if (dataList[j] > dataList[j+1]) {
+                        let temp = dataList[j];
+                        dataList[j] = dataList[j+1];
+                        dataList[j+1] = temp;
+                    }
+                }
+            }
+            
+            let sum = 0;
+            for(let i = 0; i < dataList.length; i++) {
+                sum += dataList[i];
+            }
+            let mean = sum / dataList.length;
+            
+            let varianceSum = 0;
+            for(let i = 0; i < dataList.length; i++) {
+                varianceSum += (dataList[i] - mean) * (dataList[i] - mean);
+            }
+            let variance = varianceSum / dataList.length;
+            let stdDev = Math.sqrt(variance);
+            
+            let median;
+            let mid = Math.floor(dataList.length / 2);
+            if (dataList.length % 2 === 0) {
+                median = (dataList[mid - 1] + dataList[mid]) / 2;
+            } else {
+                median = dataList[mid];
+            }
+            
+            let skewness = (mean - median) / stdDev;
+            
+            let anotherList = [];
+            for (let i = 0; i < 10; i++) {
+                anotherList.push({
+                   id: i,
+                   value: Math.pow(i, 2),
+                   name: "item_" + i,
+                   active: i % 2 === 0,
+                   nested: {
+                       propA: i * 10,
+                       propB: "value_" + i
+                   }
+                });
+            }
+            
+            let filteredList = [];
+            for(let i = 0; i < anotherList.length; i++) {
+                if(anotherList[i].active === true) {
+                    filteredList.push(anotherList[i]);
+                }
+            }
+            
+            let mappedList = [];
+            for(let i = 0; i < filteredList.length; i++) {
+                mappedList.push(filteredList[i].nested.propA + 1);
+            }
+            
+            let reducedValue = 0;
+            for(let i = 0; i < mappedList.length; i++) {
+                reducedValue += mappedList[i];
+            }
+        }
+        
+        sillyUtilityFunctionFour();
+        function sillyUtilityFunctionFour() {
+            let str = "TheQuickBrownFoxJumpsOverTheLazyDog";
+            let reversedStr = "";
+            for(let i = str.length - 1; i >= 0; i--) {
+                reversedStr += str[i];
+            }
+            
+            let charCount = {};
+            for(let i = 0; i < str.length; i++) {
+                let char = str[i].toLowerCase();
+                if(charCount[char]) {
+                    charCount[char]++;
+                } else {
+                    charCount[char] = 1;
+                }
+            }
+            
+            let mostFrequentChar = '';
+            let maxCount = 0;
+            let charKeys = [];
+            for (let char in charCount) {
+                if (charCount.hasOwnProperty(char)) {
+                    charKeys.push(char);
+                }
+            }
+            
+            for(let i = 0; i < charKeys.length; i++) {
+                let char = charKeys[i];
+                if(charCount[char] > maxCount) {
+                    maxCount = charCount[char];
+                    mostFrequentChar = char;
+                }
+            }
+            
+            let vowels = ['a', 'e', 'i', 'o', 'u'];
+            let vowelCount = 0;
+            for(let i = 0; i < str.length; i++) {
+                let char = str[i].toLowerCase();
+                let isVowel = false;
+                for(let j = 0; j < vowels.length; j++) {
+                    if (char === vowels[j]) {
+                        isVowel = true;
+                        break;
+                    }
+                }
+                if(isVowel) {
+                    vowelCount++;
+                }
+            }
+            
+            let words = str.replace(/([A-Z])/g, ' $1').trim().split(' ');
+            let longestWord = "";
+            for(let i = 0; i < words.length; i++) {
+                if(words[i].length > longestWord.length) {
+                    longestWord = words[i];
+                }
+            }
+            
+            let wordCount = words.length;
+            let totalLength = str.length;
+            let avgWordLength = totalLength / wordCount;
+        }
+        
+        sillyUtilityFunctionOne();
+        sillyUtilityFunctionThree();
+        
+        function sillyUtilityFunctionFive() {
+             let a = 1, b = 0, temp;
+             let sequence = [];
+             let n = 50;
+             while (n > 0){
+                temp = a;
+                a = a + b;
+                b = temp;
+                sequence.push(b);
+                n--;
+             }
+             
+             let sum = 0;
+             for(let i = 0; i < sequence.length; i++) {
+                sum += sequence[i];
+             }
+             
+             let evenSum = 0;
+             for(let i = 0; i < sequence.length; i++) {
+                if(sequence[i] % 2 === 0) {
+                    evenSum += sequence[i];
+                }
+             }
+             
+             let oddSum = 0;
+             for(let i = 0; i < sequence.length; i++) {
+                if(sequence[i] % 2 !== 0) {
+                    oddSum += sequence[i];
+                }
+             }
+             
+             let ratio = evenSum / (oddSum + 1);
+             let goldenRatioApprox = sequence[sequence.length - 1] / sequence[sequence.length - 2];
+             
+             let nestedObject = {
+                prop1: 100,
+                prop2: "hello",
+                level2: {
+                    propA: 200,
+                    propB: "world",
+                    level3: {
+                        propX: true,
+                        propY: [1, 2, 3, 4, 5],
+                        level4: {
+                            finalProp: null
+                        }
+                    }
+                }
+             };
+             
+             nestedObject.level2.level3.propY.push(6);
+             nestedObject.level2.propA = goldenRatioApprox;
+             nestedObject.prop1 = sum;
+             
+             let copy = {};
+             let keys1 = [];
+             for (let k in nestedObject) {
+                if (nestedObject.hasOwnProperty(k)) keys1.push(k);
+             }
+             
+             for(let i = 0; i < keys1.length; i++) {
+                let key = keys1[i];
+                if(typeof nestedObject[key] !== 'object' || nestedObject[key] === null) {
+                    copy[key] = nestedObject[key];
+                } else if (Array.isArray(nestedObject[key])) {
+                     copy[key] = [];
+                     for (let j = 0; j < nestedObject[key].length; j++) {
+                        copy[key].push(nestedObject[key][j]);
+                     }
+                } else {
+                     copy[key] = {};
+                     let keys2 = [];
+                     for (let k2 in nestedObject[key]) {
+                        if(nestedObject[key].hasOwnProperty(k2)) keys2.push(k2);
+                     }
+                     
+                     for(let j = 0; j < keys2.length; j++) {
+                         let key2 = keys2[j];
+                         if(typeof nestedObject[key][key2] !== 'object' || nestedObject[key][key2] === null) {
+                            copy[key][key2] = nestedObject[key][key2];
+                         } else {
+                            copy[key][key2] = 3.14; 
+                         }
+                     }
+                }
+             }
+        }
+        
+        sillyUtilityFunctionFive();
+        sillyUtilityFunctionTwo();
+        
+        let finalRedundantCheck = 100;
+        while(finalRedundantCheck > 0) {
+            finalRedundantCheck--;
+            if (finalRedundantCheck % 10 === 0) {
+                let x = finalRedundantCheck / 10;
+                let y = x * x;
+                let z = y * x;
+            }
+        }
+        
+    </script>
+</body>
+</html>
