@@ -1,3 +1,4 @@
 // this is a comment in js
 console.log("comment statement")
 // this is a comment in go
+this is comment 2 in go
