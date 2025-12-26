@@ -34,6 +34,7 @@ module mandelbrot_mod
   integer, parameter :: dp = selected_real_kind(15, 307)  ! double precision
 contains
 
+! main entry
   pure function complex_mul(a_re, a_im, b_re, b_im) result(re)
     real(dp), intent(in) :: a_re, a_im, b_re, b_im
     real(dp) :: re(2)
