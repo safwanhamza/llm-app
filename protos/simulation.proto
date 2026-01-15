@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package simulation;
+
+option go_package = "github.com/simulation-app/backend-go/pb/simulation";
+
+service SimulationService {
+  rpc SolveHeatEquation (HeatParams) returns (HeatResult);
+  rpc SimulateNBody (NBodyParams) returns (NBodyResult);
+}
+
+message HeatParams {
+  int32 width = 1;
+  int32 height = 2;
+  double diffusion_rate = 3;
+  int32 time_steps = 4;
+  double delta_t = 5;
+  double delta_x = 6;
+  // Initial hot spots could be added here
+}
+
+message HeatResult {
+  int32 width = 1;
+  int32 height = 2;
+  repeated double data = 3; // Row-major flattened grid
+}
+
+message NBodyParams {
+  int32 num_bodies = 1;
+  int32 time_steps = 2;
+  double delta_t = 3;
+  double g_constant = 4;
+}
+
+message BodyState {
+  double x = 1;
+  double y = 2;
+  double mass = 3;
+  double vx = 4;
+  double vy = 5;
+}
+
+message NBodyResult {
+  int32 steps = 1;
+  int32 num_bodies = 2;
+  repeated BodyState final_state = 3; // Just the final state for now, or we could stream all steps
+  repeated double all_positions = 4; // Flat list of (x, y) for all bodies for all steps [step1_b1_x, step1_b1_y, step1_b2_x...]
+}

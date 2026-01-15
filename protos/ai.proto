@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package ai;
+
+option go_package = "github.com/simulation-app/backend-go/pb/ai";
+
+import "protos/simulation.proto";
+
+service OptimizerService {
+  rpc OptimizeHeatParams (HeatGoal) returns (simulation.HeatParams);
+  rpc OptimizeNBodyParams (NBodyGoal) returns (simulation.NBodyParams);
+}
+
+message HeatGoal {
+  string target_property = 1; // e.g. "fast_diffusion", "stable"
+  double desired_value = 2;
+}
+
+message NBodyGoal {
+  string target_behavior = 1; // e.g. "minimize_collisions", "orbital_stability"
+  int32 body_count = 2;
+}
