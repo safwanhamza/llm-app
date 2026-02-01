@@ -1,4 +1,4 @@
-// main.go
+?// main.go
 // main entry
 package main
 
