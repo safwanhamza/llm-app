@@ -1,7 +1,4 @@
-njnxk// main entry
+// main entry
 fn main() {
     println!("Hello, world!");
 }
-/
-/
-jfhj
